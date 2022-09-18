@@ -1,1 +1,1 @@
-trash-put $1 && trash-list
+trash-put $@ && trash-list

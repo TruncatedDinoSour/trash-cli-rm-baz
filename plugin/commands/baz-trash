@@ -6,6 +6,8 @@ export BAZ_TRASH_DIR="${BAZ_TRASH_DIR:-$HOME/.local/share/baz-trash}"
 export BAZ_TRASH_FILE_DIR="$BAZ_TRASH_DIR/files"
 export BAZ_TRASH_INFO_DIR="$BAZ_TRASH_DIR/info"
 
+rmi() { rm --interactive=never "$@"; }
+
 join_by() {
     local d="${1-}" f="${2-}"
 
@@ -32,7 +34,7 @@ error() {
 }
 
 trash_is_empty() {
-    if [ -z "$(ls -A "$BAZ_TRASH_FILE_DIR")" ] || [ -z "$(ls -A "$BAZ_TRASH_INFO_DIR")" ]; then
+    if [ -z "$(ls -A -- "$BAZ_TRASH_FILE_DIR")" ] || [ -z "$(ls -A -- "$BAZ_TRASH_INFO_DIR")" ]; then
         error "No trash to $1"
     fi
 }
@@ -48,7 +50,7 @@ generate_tid() {
     local tid
 
     while [ -z "$tid" ] || [ -e "$BAZ_TRASH_FILE_DIR/$tid" ] || [ -e "$BAZ_TRASH_INFO_DIR/$tid" ]; do
-        tid="$RANDOM.trash-$(head -n 5 /dev/urandom | sha1sum | awk '{print $1}')$RANDOM"
+        tid="__${RANDOM}.trash-$(head -n 5 /dev/urandom | sha1sum | awk '{print $1}')${RANDOM}__"
     done
 
     echo -n "$tid"
@@ -70,7 +72,7 @@ yn() {
 }
 
 list_trashed_files() {
-    local idx=0
+    local idx=0 info
 
     for info in "${BAZ_TRASH_INFO_DIR:?}"/*; do
         log "$idx: $(<"$info")"
@@ -88,16 +90,15 @@ restore_trash() {
 
     [ -e "$file" ] && error "Refusing to overwrite '$file'"
 
-    mv "$BAZ_TRASH_FILE_DIR/$tid" "$file" || error "Failed restoring file '$(get_base "$file")'"
-    rm "$1" || error "Failed removing info file '$1'"
+    mv -- "$BAZ_TRASH_FILE_DIR/$tid" "$file" || error "Failed restoring file '$(get_base "$file")'"
+    rmi -- "$1" || error "Failed removing info file '$1'"
 }
 
 trash_add() {
     [ "$#" -lt 1 ] && error 'Syntax: add <trash...>'
 
-    local idx=0
+    local idx=0 file_basename file
 
-    local file_basename
     for file in "$@"; do
         file_basename="$(get_base "$file")"
 
@@ -133,7 +134,7 @@ trash_dump() {
 
         log "Dumping file $idx: $(<"$info_file")"
 
-        rm -r -- "${BAZ_TRASH_FILE_DIR:?}/$file_basename" "$info_file" || error 'Failed to dump the recent file'
+        rmi -r -- "${BAZ_TRASH_FILE_DIR:?}/$file_basename" "$info_file" || error 'Failed to dump the recent file'
         idx="$((idx + 1))"
     done
 
@@ -143,7 +144,7 @@ trash_dump() {
 trash_restore() {
     trash_is_empty 'restore'
 
-    local range idx=0 files=()
+    local range idx=0 file files=()
 
     for file in "$BAZ_TRASH_INFO_DIR"/*; do
         log "$idx: $(<"$file")"

@@ -69,14 +69,6 @@ yn() {
     [ "$a" = y ]
 }
 
-get_folder_usage() {
-    du -cbh "$BAZ_TRASH_DIR" | tail -n 1 | awk '{print $1}'
-}
-
-du_to_kb() {
-    awk "{printf \"%f\", $1 * 0.001}"
-}
-
 list_trashed_files() {
     local idx=0
 
@@ -85,7 +77,6 @@ list_trashed_files() {
         idx="$((idx + 1))"
     done
 
-    nlog "Used disk space: ~$(get_folder_usage "$BAZ_TRASH_DIR" | du_to_kb '$1') KB"
     echo -n "$idx"
 }
 
@@ -134,8 +125,7 @@ trash_dump() {
 
     [ "$1" = '-f' ] || yn 'Dump trash' || error 'Canceled bu the user'
 
-    local file_basename info_file before_b idx=0
-    before_b="$(get_folder_usage)"
+    local file_basename info_file idx=0
 
     for file in "$BAZ_TRASH_FILE_DIR"/*; do
         file_basename="$(get_base "$file")"
@@ -148,7 +138,6 @@ trash_dump() {
     done
 
     nlog "Dumped $idx file(s) from the trash bin"
-    log "Freed space: ~$(echo "$before_b $(get_folder_usage)" | du_to_kb '($1 - $2)') KB"
 }
 
 trash_restore() {

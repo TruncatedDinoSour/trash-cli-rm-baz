@@ -6,8 +6,6 @@ export BAZ_TRASH_DIR="${BAZ_TRASH_DIR:-$HOME/.local/share/baz-trash}"
 export BAZ_TRASH_FILE_DIR="$BAZ_TRASH_DIR/files"
 export BAZ_TRASH_INFO_DIR="$BAZ_TRASH_DIR/info"
 
-rmi() { rm --interactive=never "$@"; }
-
 join_by() {
     local d="${1-}" f="${2-}"
 
@@ -91,7 +89,7 @@ restore_trash() {
     [ -e "$file" ] && error "Refusing to overwrite '$file'"
 
     mv -- "$BAZ_TRASH_FILE_DIR/$tid" "$file" || error "Failed restoring file '$(get_base "$file")'"
-    rmi -- "$1" || error "Failed removing info file '$1'"
+    rm --interactive=never -- "$1" || error "Failed removing info file '$1'"
 }
 
 trash_add() {
@@ -123,10 +121,16 @@ trash_list() {
 
 trash_dump() {
     trash_is_empty 'dump'
+    local file_basename info_file idx=0 rm_mode
 
-    [ "$1" = '-f' ] || yn 'Dump trash' || error 'Canceled bu the user'
+    nlog "Total trash: $(list_trashed_files)"
 
-    local file_basename info_file idx=0
+    if [ "$1" = '-f' ]; then
+        rm_mode='never'
+    else
+        yn 'Dump trash' || error 'Canceled by the user'
+        rm_mode='once'
+    fi
 
     for file in "$BAZ_TRASH_FILE_DIR"/*; do
         file_basename="$(get_base "$file")"
@@ -134,7 +138,7 @@ trash_dump() {
 
         log "Dumping file $idx: $(<"$info_file")"
 
-        rmi -r -- "${BAZ_TRASH_FILE_DIR:?}/$file_basename" "$info_file" || error 'Failed to dump the recent file'
+        rm --interactive="$rm_mode" -r -- "${BAZ_TRASH_FILE_DIR:?}/$file_basename" "$info_file" || error 'Failed to dump the recent file'
         idx="$((idx + 1))"
     done
 
@@ -204,11 +208,11 @@ trash_help() {
 baz-trash -- trash-cli, in pure bash
 
 subcommands:
-    help                -- Print this
-    add <trash...>      -- Add trash
-    list                -- List trash
-    dump [-f]           -- Dump (remove, clear) trash, -f = force
-    restore             -- Restore trash
+    help           -- Print this
+    add <trash...> -- Add trash
+    list           -- List trash
+    dump [-f]      -- Dump (remove, clear) trash, -f = force
+    restore        -- Restore trash
 EOF
 }
 

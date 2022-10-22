@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+
+set -e
+
+export BAZ_TRASH_DIR="${BAZ_TRASH_DIR:-$HOME/.local/share/baz-trash}"
+export BAZ_TRASH_FILE_DIR="$BAZ_TRASH_DIR/files"
+export BAZ_TRASH_INFO_DIR="$BAZ_TRASH_DIR/info"
+
+join_by() {
+    local d="${1-}" f="${2-}"
+
+    if shift 2; then
+        printf '%s' "$f" "${@/#/$d}"
+    fi
+}
+
+get_base() {
+    set -- "${1%"${1##*[!/]}"}"
+    echo "${1##*/}"
+}
+
+log() { echo " : $1" >&2; }
+
+nlog() {
+    echo >&2
+    log "$1"
+}
+
+error() {
+    log "$1"
+    exit 1
+}
+
+trash_is_empty() {
+    if [ -z "$(ls -A "$BAZ_TRASH_FILE_DIR")" ] || [ -z "$(ls -A "$BAZ_TRASH_INFO_DIR")" ]; then
+        error "No trash to $1"
+    fi
+}
+
+prep_dirs() {
+    local d
+    for d in "$BAZ_TRASH_FILE_DIR" "$BAZ_TRASH_INFO_DIR"; do
+        mkdir -p -- "$d" || error "Failed to mkdir($d)"
+    done
+}
+
+generate_tid() {
+    local tid
+
+    while [ -z "$tid" ] || [ -e "$BAZ_TRASH_FILE_DIR/$tid" ] || [ -e "$BAZ_TRASH_INFO_DIR/$tid" ]; do
+        tid="$RANDOM.trash-$(head -n 5 /dev/urandom | sha1sum | awk '{print $1}')$RANDOM"
+    done
+
+    echo -n "$tid"
+}
+
+trash_file() {
+    local tid rp
+
+    tid="$(generate_tid)"
+    rp="$(realpath -- "$1")"
+
+    mv -- "$rp" "$BAZ_TRASH_FILE_DIR/$tid" || error "Failed to trash $1"
+    echo -n "$rp" >"$BAZ_TRASH_INFO_DIR/$tid" || error "Failed to make an info file for $1"
+}
+
+yn() {
+    read -rp " * $1? y/n " a
+    [ "$a" = y ]
+}
+
+list_trashed_files() {
+    local idx=0
+
+    for info in "${BAZ_TRASH_INFO_DIR:?}"/*; do
+        log "$idx: $(<"$info")"
+        idx="$((idx + 1))"
+    done
+
+    echo -n "$idx"
+}
+
+restore_trash() {
+    local tid file
+
+    tid="$(get_base "$1")"
+    file="$(<"$1")"
+
+    [ -e "$file" ] && error "Refusing to overwrite '$file'"
+
+    mv "$BAZ_TRASH_FILE_DIR/$tid" "$file" || error "Failed restoring file '$(get_base "$file")'"
+    rm "$1" || error "Failed removing info file '$1'"
+}
+
+trash_add() {
+    [ "$#" -lt 1 ] && error 'Syntax: add <trash...>'
+
+    local idx=0
+
+    local file_basename
+    for file in "$@"; do
+        file_basename="$(get_base "$file")"
+
+        if [ ! -e "$file" ]; then
+            log "File '$file_basename' does not exist -- skipping"
+            continue
+        fi
+
+        log "Trashing file #$idx: $file_basename"
+        trash_file "$file"
+
+        idx="$((idx + 1))"
+    done
+
+    nlog "Successfully trashed $idx file(s)"
+}
+
+trash_list() {
+    trash_is_empty 'list'
+    nlog "Total trash: $(list_trashed_files)"
+}
+
+trash_dump() {
+    trash_is_empty 'dump'
+
+    [ "$1" = '-f' ] || yn 'Dump trash' || error 'Canceled bu the user'
+
+    local file_basename info_file idx=0
+
+    for file in "$BAZ_TRASH_FILE_DIR"/*; do
+        file_basename="$(get_base "$file")"
+        info_file="${BAZ_TRASH_INFO_DIR:?}/$file_basename"
+
+        log "Dumping file $idx: $(<"$info_file")"
+
+        rm -r -- "${BAZ_TRASH_FILE_DIR:?}/$file_basename" "$info_file" || error 'Failed to dump the recent file'
+        idx="$((idx + 1))"
+    done
+
+    nlog "Dumped $idx file(s) from the trash bin"
+}
+
+trash_restore() {
+    trash_is_empty 'restore'
+
+    local range idx=0 files=()
+
+    for file in "$BAZ_TRASH_INFO_DIR"/*; do
+        log "$idx: $(<"$file")"
+        files["$idx"]="$file"
+        idx="$((idx + 1))"
+    done
+
+    nlog "Max trash count: $idx"
+
+    read -rp ' * What to restore in expr: [(list) ,x y z; (range) -x y; (single) x] ' restore
+    IFS=' ' read -r -a restore_expr <<<"${restore:1}"
+
+    case "${restore:0:1}" in
+    ,)
+        for idx in "${restore_expr[@]}"; do
+            if [ ! "$idx" -lt "${#files[@]}" ] || [ ! -e "${files["$idx"]}" ]; then
+                log "$idx: File out of range -- skipping"
+                yn 'Are you sure you want to continue' || error 'Not continuing'
+                continue
+            fi
+
+            restore_trash "${files["$idx"]}"
+        done
+
+        log "Restored trash: $(join_by ', ' "${restore_expr[@]}")"
+        ;;
+    -)
+        [ "${#restore_expr[@]}" = 2 ] || error 'Range must be: -begin end'
+        [ "${restore_expr[0]}" -lt "${restore_expr[1]}" ] || error 'Range begin must be less than end'
+        [ "${restore_expr[1]}" -lt "${#files[@]}" ] || error 'Range end must not overflow max trash count'
+
+        # shellcheck disable=SC2207
+        range=($(seq "${restore_expr[0]}" "${restore_expr[1]}"))
+
+        for idx in "${range[@]}"; do
+            restore_trash "${files["$idx"]}"
+        done
+
+        log "Restored trash: $(join_by ', ' "${range[@]}")"
+        ;;
+    [0-9]*)
+        if [ ! "$restore" -lt "${#files[@]}" ] || [ ! -e "${files["$restore"]}" ]; then
+            error "$idx: File out of range -- bailing"
+        fi
+
+        restore_trash "${files["$restore"]}"
+        log "Restored file #$restore"
+        ;;
+    *)
+        error 'Invalid expression'
+        ;;
+    esac
+}
+
+trash_help() {
+    cat <<EOF
+baz-trash -- trash-cli, in pure bash
+
+subcommands:
+    help                -- Print this
+    add <trash...>      -- Add trash
+    list                -- List trash
+    dump [-f]           -- Dump (remove, clear) trash, -f = force
+    restore             -- Restore trash
+EOF
+}
+
+main() {
+    prep_dirs
+
+    case "$1" in
+    help) trash_help ;;
+    add) trash_add "${@:2}" ;;
+    list) trash_list ;;
+    dump) trash_dump "$2" ;;
+    restore) trash_restore ;;
+    *)
+        trash_help >&2
+        exit 1
+        ;;
+    esac
+}
+
+main "$@"

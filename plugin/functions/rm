@@ -1,1 +1,1 @@
-trash-put $@ && trash-list
+baz-trash add $@ && baz-trash list

@@ -10,10 +10,6 @@
 $ baz install git 'https://ari-web.xyz/gh/trash-cli-rm-baz'
 ```
 
-# Requirements
-
-- [Trash cli](https://pypi.org/project/trash-cli/)
-
 # Aliases
 
 - `rls` -- List trash

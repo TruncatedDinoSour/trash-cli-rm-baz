@@ -246,10 +246,8 @@ EOF
 }
 
 trash_size() {
-    local size
-    size="$(du -csh "$BAZ_TRASH_FILE_DIR" | head -n 1 | awk '{print $1}')"
-
-    log "Trash folder size: $size"
+    # shellcheck disable=SC2012
+    log "Trash folder size: $(du -csh "$BAZ_TRASH_FILE_DIR" | head -n 1 | awk '{print $1}'), $(ls -A -- "$BAZ_TRASH_FILE_DIR" | wc -l) items"
 }
 
 trash_help() {

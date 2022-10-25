@@ -37,6 +37,11 @@ trash_is_empty() {
     fi
 }
 
+matches_regex() {
+    [ "${2:-.*}" = '.*' ] && return
+    [[ $1 =~ ^$2$ ]]
+}
+
 prep_dirs() {
     local d
     for d in "$BAZ_TRASH_FILE_DIR" "$BAZ_TRASH_INFO_DIR"; do
@@ -121,11 +126,11 @@ trash_list() {
 
 trash_dump() {
     trash_is_empty 'dump'
-    local file_basename info_file idx=0 rm_mode
+    local file_basename info_file idx=0 rm_mode real_path
 
     nlog "Total trash: $(list_trashed_files)"
 
-    if [ "$1" = '-f' ]; then
+    if [ "$1" = 'force' ]; then
         rm_mode='never'
     else
         yn 'Dump trash' || error 'Canceled by the user'
@@ -135,8 +140,11 @@ trash_dump() {
     for file in "$BAZ_TRASH_FILE_DIR"/*; do
         file_basename="$(get_base "$file")"
         info_file="${BAZ_TRASH_INFO_DIR:?}/$file_basename"
+        real_path="$(<"$info_file")"
 
-        log "Dumping file $idx: $(<"$info_file")"
+        matches_regex "$real_path" "$2" || continue
+
+        log "Dumping file $idx: $real_path"
 
         rm --interactive="$rm_mode" -r -- "${BAZ_TRASH_FILE_DIR:?}/$file_basename" "$info_file" || error 'Failed to dump the recent file'
         idx="$((idx + 1))"
@@ -148,7 +156,7 @@ trash_dump() {
 trash_restore() {
     trash_is_empty 'restore'
 
-    local range idx=0 file files=()
+    local range idx=0 sidx=0 file files=()
 
     for file in "$BAZ_TRASH_INFO_DIR"/*; do
         log "$idx: $(<"$file")"
@@ -158,7 +166,28 @@ trash_restore() {
 
     nlog "Max trash count: $idx"
 
-    read -rp ' * What to restore in expr: [(list) ,x y z; (range) -x y; (single) x] ' restore
+    if [ ! "$BAZ_TRASH_NOHELP" ]; then
+        cat <<EOF
+
+ * Expr syntax:
+   - List      | ,x y z            | ,1 2 6    | Restore 1st, 2nd and 6th items
+   - Range     | -x y              | -3 6      | Restore items 3 through 6
+   - Single    | x                 | 7         | Restore the 7th element
+                 ~
+                 └─> Info: Naming multiple ones (x y z) is a
+                           feature of List and isn't valid for singles
+   - Regex     | /x[y-z].{2}aaa    | /he..o    | Restore any item that starts with he (^he) then
+                                     ~~~~~~      any 2 chars (..) and ends with o (o$)
+                                     │
+                                     ├─> Note: This regex should match the whole path, so
+                                     │         you wanting to only match the filename
+                                     │         should do: .*regex
+                                     └─> Info: This becomes: ^he..o$
+EOF
+    fi
+
+    echo
+    read -rp ' * What to restore in expr syntax: ' restore
     IFS=' ' read -r -a restore_expr <<<"${restore:1}"
 
     case "${restore:0:1}" in
@@ -181,7 +210,7 @@ trash_restore() {
         [ "${restore_expr[1]}" -lt "${#files[@]}" ] || error 'Range end must not overflow max trash count'
 
         # shellcheck disable=SC2207
-        range=($(seq "${restore_expr[0]}" "${restore_expr[1]}"))
+        range=($(seq -- "${restore_expr[0]}" "${restore_expr[1]}"))
 
         for idx in "${range[@]}"; do
             restore_trash "${files["$idx"]}"
@@ -197,10 +226,30 @@ trash_restore() {
         restore_trash "${files["$restore"]}"
         log "Restored file #$restore"
         ;;
+    /)
+        [ "${restore:1}" ] || error "Regex shouldn't not be empty"
+
+        for idx in $(seq -- "${#files[@]}"); do
+            if matches_regex "${files["$idx"]}" "${restore:1}"; then
+                log "Restoring file #$idx"
+                restore_trash "$file"
+                sidx="$((sidx + 1))"
+            fi
+        done
+
+        nlog "Successfully restored $sidx file(s)"
+        ;;
     *)
         error 'Invalid expression'
         ;;
     esac
+}
+
+trash_size() {
+    local size
+    size="$(du -csh "$BAZ_TRASH_FILE_DIR" | head -n 1 | awk '{print $1}')"
+
+    log "Trash folder size: $size"
 }
 
 trash_help() {
@@ -208,23 +257,36 @@ trash_help() {
 baz-trash -- trash-cli, in pure bash
 
 subcommands:
-    help           -- Print this
-    add <trash...> -- Add trash
-    list           -- List trash
-    dump [-f]      -- Dump (remove, clear) trash, -f = force
-    restore        -- Restore trash
+    help                 -- Print this
+    add <trash...>       -- Add trash
+    list                 -- List trash
+    dump [force] [regex] -- Dump (remove, clear) trash, if force specified -- force it, you can
+                            optionally supply a regex to match with if you want to only
+                            dump files matching a specific regex
+    restore              -- Restore trash
+    size                 -- Show trash folder size
+
+environment variables:
+    BAZ_TRASH_NORL       -- Set to any value if you want to disable rlwrap loading
+    BAZ_TRASH_NOHELP     -- Disable help for the dump command
 EOF
 }
 
 main() {
+    if [ ! "$BAZ_TRASH_NORL" ] && command -v rlwrap >/dev/null; then
+        BAZ_TRASH_NORL=true rlwrap "$0" "$@"
+        return "$?"
+    fi
+
     prep_dirs
 
     case "$1" in
     help) trash_help ;;
     add) trash_add "${@:2}" ;;
     list) trash_list ;;
-    dump) trash_dump "$2" ;;
+    dump) trash_dump "$2" "${3:-.*}" ;;
     restore) trash_restore ;;
+    size) trash_size ;;
     *)
         trash_help >&2
         exit 1

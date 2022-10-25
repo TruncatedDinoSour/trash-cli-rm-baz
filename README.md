@@ -15,4 +15,4 @@ $ baz install git 'https://ari-web.xyz/gh/trash-cli-rm-baz'
 - `rls` -- List trash
 - `rm` -- Put into trash
 - `rmk` -- Restore trash
-- `rrm` -- Clear trash
+- `rrm` -- Dump trash

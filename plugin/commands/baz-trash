@@ -268,7 +268,7 @@ subcommands:
 
 environment variables:
     BAZ_TRASH_NORL       -- Set to any value if you want to disable rlwrap loading
-    BAZ_TRASH_NOHELP     -- Disable help for the dump command
+    BAZ_TRASH_NOHELP     -- Disable help for the restore command
 EOF
 }
 

@@ -170,8 +170,9 @@ trash_restore() {
         cat <<EOF
 
  * Expr syntax:
-   - List      | ,x y z            | ,1 2 6    | Restore 1st, 2nd and 6th items
-   - Range     | -x y              | -3 6      | Restore items 3 through 6
+   * Note: Negative values are valid for these values, indexses the end:
+     - List    | ,x y z            | ,1 2 6    | Restore 1st, 2nd and 6th items
+     - Range   | -x y              | -3 6      | Restore items 3 through 6
    - Single    | x                 | 7         | Restore the 7th element
                  ~
                  └─> Info: Naming multiple ones (x y z) is a
@@ -181,7 +182,7 @@ trash_restore() {
                                      │
                                      ├─> Note: This regex should match the whole path, so
                                      │         you wanting to only match the filename
-                                     │         should do: .*regex
+                                     │         should do: /.*regex
                                      └─> Info: This becomes: ^he..o$
 EOF
     fi
@@ -249,7 +250,7 @@ trash_size() {
     trash_is_empty 'size'
 
     # shellcheck disable=SC2012
-    log "Trash folder size: $(du -csh "$BAZ_TRASH_FILE_DIR" | head -n 1 | awk '{print $1}'), $(ls -A -- "$BAZ_TRASH_FILE_DIR" | wc -l) items"
+    log "Trash folder size: $(du -csh "$BAZ_TRASH_FILE_DIR" | head -n 1 | awk '{print $1}'), $(ls -A -- "$BAZ_TRASH_FILE_DIR" | wc -l) item(s)"
 }
 
 trash_help() {

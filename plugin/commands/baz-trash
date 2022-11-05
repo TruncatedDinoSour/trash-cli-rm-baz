@@ -53,7 +53,7 @@ generate_tid() {
     local tid
 
     while [ -z "$tid" ] || [ -e "$BAZ_TRASH_FILE_DIR/$tid" ] || [ -e "$BAZ_TRASH_INFO_DIR/$tid" ]; do
-        tid="__${RANDOM}.trash-$(head -n 5 /dev/urandom | sha1sum | awk '{print $1}')${RANDOM}__"
+        tid="${RANDOM}-$(head -n 5 /dev/urandom | sha1sum | awk '{print $1}')${RANDOM}.trash"
     done
 
     echo -n "$tid"
